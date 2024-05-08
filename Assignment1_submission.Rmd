@@ -1,0 +1,461 @@
+---
+title: "Assessment 2.1"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r}
+#set working directory 
+setwd("/Users/radhikaorari/Documents/UNI/23Semester2/SDA/Assignment1" )
+
+```
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+library(skimr)
+library(fitdistrplus)
+library(magrittr)
+```
+
+Q1: Road traffic accident dataset
+```{r}
+# Read the CSV file
+car_data_raw <- read.csv("car_accidents_victoria.csv")
+head(car_data_raw)
+```
+
+Q1.1: How many rows and columns are in the data? Provide the output from your R Studio.
+```{r}
+data_dim <- dim(car_data_raw)
+num_rows <- data_dim[1]
+num_columns <- data_dim[2]
+
+cat("Number of rows:", num_rows, "\n")
+cat("Number of columns:", num_columns, "\n")
+```
+
+```{r}
+num_rows <- data_dim[1] - 1  # Excluding the first row
+num_columns <- data_dim[2]
+
+cat("Number of rows (excluding the first row):", num_rows, "\n")
+cat("Number of columns:", num_columns, "\n")
+```
+
+Q1.2: How many regions are in the data?
+```{r}
+#Extract the value from column header ending with "REGION"
+column_names_region <- names(car_data_raw)[grep("\\.REGION$", names(car_data_raw))]
+cat("The number of regions:", length(column_names_region), "\n")
+
+# Print regions as a numbered list
+for (i in seq_along(column_names_region)) {
+  cat(i, ". ", column_names_region[i], "\n", sep = "")
+}
+
+```
+
+1.3 What data types are in the data? Use data type selection tree and provide detailed explanation.
+```{r}
+sapply(car_data_raw,class)
+```
+
+Q1.4: What time period does the data cover?
+```{r}
+#Extract the column with dates excluding row 1 from the raw data and rename the column as DATE
+car_data_date <- car_data_raw[-1, 1, drop = FALSE]
+colnames(car_data_date) <- "DATE"
+# Convert DATE column to Date format
+car_data_date$DATE <- as.Date(car_data_date$DATE, format = "%d/%m/%Y")
+
+# Calculate start and end dates
+start_date <- min(car_data_date$DATE)
+end_date <- max(car_data_date$DATE)
+
+# Print start and end dates 
+cat("Start Date:", format(start_date, "%d/%m/%Y"), "\n")
+cat("End Date:", format(end_date, "%d/%m/%Y"), "\n\n")
+```
+
+###############################################################################
+Q2: Tidy data
+###############################################################################
+Q2.1.a Cleaning up columns.
+```{r}
+cav_data_link <- 'car_accidents_victoria.csv'
+top_row <- read_csv(cav_data_link, col_names = FALSE, n_max = 1) 
+second_row <- read_csv(cav_data_link, n_max = 1)
+
+column_names <- second_row %>%
+  unlist(., use.names=FALSE) %>%
+  make.unique(., sep = "__") # double underscore
+
+column_names[2:5] <- str_c(column_names[2:5], '0', sep='__')
+
+daily_accidents <-
+  read_csv(cav_data_link, skip = 2, col_names = column_names)
+head(daily_accidents)
+```
+Q2.1.b: print out a list of regions in the data set
+```{r}
+#Extract all the non empty values from the top row of the dataframe and transpose it 
+regions <- na.omit(t(top_row))
+cat("The Regions are: ", "\n\n")
+# Print region names  as a numbered list
+for (i in 1:length(regions)) {
+  cat(i, ". ", regions[i], "\n")
+}
+```
+
+Q2.2 Tidying data:
+Q2.2.b: Transform to tidy data using pivot_longer.
+
+```{r}
+tidy_data_daily_accidents <- daily_accidents %>%
+  pivot_longer(
+    cols = starts_with(c("FATAL__", "SERIOUS__", "NOINJURY__", "OTHER__")),
+    names_to = c(".value", "REGION_CODE"),
+    names_sep = "__"
+  ) %>%
+  mutate(
+    REGION = case_when(
+      REGION_CODE == "0" ~ "EASTERN",
+      REGION_CODE == "1" ~ "METROPOLITAN NORTH WEST",
+      REGION_CODE == "2" ~ "METROPOLITAN SOUTH EAST",
+      REGION_CODE == "3" ~ "NORTH EASTERN",
+      REGION_CODE == "4" ~ "NORTHERN",
+      REGION_CODE == "5" ~ "SOUTH WESTERN",
+      REGION_CODE == "6" ~ "WESTERN"
+    )
+  ) %>%
+  #dplyr is explicitely mentioned since there were conflicting packages
+  dplyr::select(DATE, REGION, FATAL, SERIOUS, NOINJURY, OTHER) 
+
+head(tidy_data_daily_accidents)
+```
+
+Q2.2.c: Fixing variable types:
+
+```{r}
+tidy_data_daily_accidents <- tidy_data_daily_accidents %>%
+  mutate(
+    DATE = as.Date(DATE, format = "%d/%m/%Y"),
+    across(c(FATAL, SERIOUS, NOINJURY, OTHER), as.integer)
+  )
+
+head(tidy_data_daily_accidents)
+```
+```{r}
+# Check for missing values in each column
+missing_values <- sapply(tidy_data_daily_accidents, function(x) sum(is.na(x)))
+
+# Display the number of missing values for each column
+print("Missing value counts for each column: ")
+print(missing_values)
+
+# Calculate the total count of missing values
+total_missing <- sum(missing_values)
+
+# Display the total count of missing values using print
+cat("Total number of missing values :", total_missing)
+
+```
+
+```{r}
+# Create a new figure with multiple plots
+par(mfrow = c(1, 3))  # 1 row and 3 columns
+
+# histogram for FATAL
+hist(tidy_data_daily_accidents$FATAL, main = "Histogram of FATAL", col = "blue")
+
+# histogram for SERIOUS
+hist(tidy_data_daily_accidents$SERIOUS, main = "Histogram of SERIOUS", col = "green")
+
+# histogram for OTHER
+hist(tidy_data_daily_accidents$OTHER, main = "Histogram of OTHER", col = "orange")
+
+# Reset the par settings to default a plot per figure
+par(mfrow = c(1, 1))
+
+```
+
+```{r}
+# Replace missing values with the median using tidyverse
+columns_to_modify <- c("FATAL", "SERIOUS", "OTHER")
+tidy_data_daily_accidents <- tidy_data_daily_accidents %>%
+  mutate(across(all_of(columns_to_modify), ~ if_else(is.na(.), median(., na.rm = TRUE), .) %>% as.integer()))
+
+# Print the updated data frame
+print(tidy_data_daily_accidents)
+```
+```{r}
+# Check for missing values in each column
+missing_values <- sapply(tidy_data_daily_accidents, function(x) sum(is.na(x)))
+
+# Calculate the total count of missing values
+total_missing <- sum(missing_values)
+
+# Display the total count of missing values
+cat("Total number of missing values :", total_missing)
+```
+
+###############################################################################
+Q3: Exploratory Data Analysis
+###############################################################################
+
+Q3.1 Select a region:METROPOLITAN SOUTH EAST REGION
+Q3.1.a) Select a region and create a dataset for only the selected region. 
+```{r}
+# Select a specific region
+selected_region <- "METROPOLITAN SOUTH EAST"
+
+# Create a new dataset containing only the data for the selected region
+selected_region_data <- tidy_data_daily_accidents %>%
+  filter(REGION == selected_region)
+
+# Print the selected dataset
+print(selected_region_data)
+```
+Q3.1.b) Print out
+Q3.1.b.i)the name of the chosen region
+```{r}
+# Printing the region we selected
+cat("Chosen Region:", selected_region, "\n\n")
+
+# Select unique values from the REGION column to ensure it only has values for the selected region
+unique_regions <- selected_region_data %>%
+  distinct(REGION)
+
+# Print the unique regions from the new dataframe
+cat("Unique region in the new dataframe: ", unique_regions$REGION)
+```
+
+Q3.1.b.ii)the number of serious road accidents
+
+```{r}
+total_serious_accidents <- selected_region_data %>%
+  summarise(
+    TotalSeriousAccidents = sum(SERIOUS)
+  ) %>%
+  pull(TotalSeriousAccidents)
+
+# Print the total number of serious road accidents
+cat("Total serious road accidents:", total_serious_accidents, "\n")
+```
+
+Q3.1.b.iii)the total number of road accidents in the region
+
+```{r}
+
+# Calculate the total number of road accidents using tidyverse
+total_road_accidents_mse <- selected_region_data %>%
+  summarise(
+    TotalAccidents = sum(FATAL + SERIOUS + NOINJURY + OTHER)
+  ) %>%
+  pull(TotalAccidents)
+
+# Print the total number of road accidents
+cat("Total road accidents:", total_road_accidents_mse, "\n")
+```
+
+Q3.1.c) Add "TOTAL_ACCIDENTS" column into the dataset for the selected region and print the head of the dataset
+```{r}
+# Add a new column "TOTAL_ACCIDENTS" to the dataset
+selected_region_data <- selected_region_data %>%
+  mutate(TOTAL_ACCIDENTS = as.integer(FATAL + SERIOUS + NOINJURY + OTHER))
+
+# Print the head of the dataset with the new column total accidents 
+head(selected_region_data)
+```
+
+Q3.2 For the region selected, if we want to compare the number of road accidents across the year, which plot can we use? Show your plot and explain what the plot shows.
+
+```{r}
+# Group data by Year and Month and calculate monthly total
+monthly_counts <- selected_region_data %>%
+  mutate(Year = year(DATE),
+         Month = month(DATE, label = TRUE)) %>%
+  group_by(Year, Month) %>%
+  summarise(TotalAccidents = sum(TOTAL_ACCIDENTS))
+
+# Create a line plot for each year
+ggplot(monthly_counts, aes(x = Month, y = TotalAccidents, color = factor(Year), group = Year)) +
+  geom_line() +
+  labs(title = paste("Monthly Trend of Accidents for different years in ", selected_region),
+       x = "Month",
+       y = "Total Accidents",
+       color = "Year") +
+  scale_color_discrete(name = "Year")
+```
+
+Q3.3 How do the road accident numbers change during a week? 
+```{r}
+selected_region_data %>%
+  ggplot(aes(x = wday(DATE, label = TRUE), y = TOTAL_ACCIDENTS)) +
+  geom_violin(fill = "lightblue", alpha = 1, draw_quantiles = c(0.25, 0.5, 0.75)) +
+  labs(x = "Day of Week", y = "Total Accidents",
+       title = "Road Accidents by Day of Week") +
+  scale_x_discrete(labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Q3.4 Use skimrand fitdistrplus libraries to answer the following questions.
+
+```{r}
+
+# Calculate descriptive statistics using skimr for total accident
+summary_stats <- selected_region_data %>%
+  skim(TOTAL_ACCIDENTS)
+summary_stats
+```
+
+```{r}
+head(selected_region_data)
+```
+
+Q3.4.a) Which distributions are appropriate for modelling the number of accidents?
+```{r}
+selected_region_data %$% 
+  descdist(TOTAL_ACCIDENTS, boot =100) ##take 100 samples
+
+```
+3.4.b) Which variables meet the assumptions for the Poisson distribution and why?
+```{r}
+# Calculate descriptive statistics using skimr for all columns
+summary_stats <- selected_region_data %>%
+  skim()
+summary_stats
+```
+
+3.4.c) To reduce the dependence between consecutive days, randomly sample 200 records out of the whole dataset (all records for the selected region) for modelling 
+
+```{r}
+# Set a random seed for reproducibility
+set.seed(100)
+
+# Randomly sample 200 records from the dataset
+selected_region_sampled_data <- selected_region_data %>%
+  sample_n(200)
+cat("The new data dimension is:", dim(selected_region_sampled_data))
+```
+
+###############################################################################
+Q4: Fitting distributions
+###############################################################################
+
+Q4.1: Fit a Poisson distribution and a negative binomial distribution on TOTAL_ACCIDENTS.
+```{r}
+
+  # Fit distributions
+fit_poisson_a <- fitdist(selected_region_sampled_data$TOTAL_ACCIDENTS, "pois")
+fit_negbinom_a <- fitdist(selected_region_sampled_data$TOTAL_ACCIDENTS, "nbinom")
+```
+
+
+```{r}
+fit_poisson_a %>% 
+  plot
+```
+
+```{r}
+fit_negbinom_a %>% 
+  plot
+```
+Q4.2: Compare the log-likelihood of two fitted distributions.
+
+```{r}
+
+# Get log-likelihoods
+log_likelihood_pois_a <- logLik(fit_poisson_a)
+log_likelihood_neg_a <- logLik(fit_negbinom_a)
+
+
+```
+
+```{r}
+# Compare the log-likelihood values
+cat("Log-Likelihood (Poisson):", log_likelihood_pois_a, "\n")
+cat("Log-Likelihood (Negative Binomial):", log_likelihood_neg_a, "\n")
+
+# Compare which distribution fits better
+if (log_likelihood_pois_a > log_likelihood_neg_a) {
+  cat("Poisson distribution fits better.\n")
+} else {
+  cat("Negative Binomial distribution fits better.\n")
+}
+```
+
+Q4.3 (Research Question 1)
+```{r}
+
+# Fit distributions
+fit_poisson_f <- fitdist(selected_region_sampled_data$FATAL, "pois")
+fit_negbinom_f <- fitdist(selected_region_sampled_data$FATAL, "nbinom")
+fit_normal_f <- fitdist(selected_region_sampled_data$FATAL, "norm")
+
+# Get log-likelihoods
+loglik_poisson_f <- logLik(fit_poisson_f)
+loglik_negbinom_f <- logLik(fit_negbinom_f)
+loglik_normal_f <- logLik(fit_normal_f)
+
+```
+
+```{r}
+# Compare log-likelihoods
+loglik_values <- c(loglik_poisson_f, loglik_negbinom_f, loglik_normal_f)
+distribution_names <- c("Poisson", "Negative Binomial", "Normal")
+
+best_index <- which.max(loglik_values)
+best_distribution <- distribution_names[best_index]
+best_loglik <- loglik_values[best_index]
+
+# Print the results
+cat("Log-Likelihood Comparison:\n")
+for (i in 1:length(distribution_names)) {
+  cat(sprintf("%s: %f\n", distribution_names[i], loglik_values[i]))
+}
+
+cat("\nBest Fitting Distribution for FATAL Variable:\n")
+cat(sprintf("Distribution: %s\n", best_distribution))
+cat(sprintf("Log-Likelihood: %f\n", best_loglik))
+```
+```{r}
+# Fit distributions
+fit_poisson_s <- fitdist(selected_region_sampled_data$SERIOUS, "pois")
+fit_negbinom_s <- fitdist(selected_region_sampled_data$SERIOUS, "nbinom")
+fit_normal_s <- fitdist(selected_region_sampled_data$SERIOUS, "norm")
+
+# Get log-likelihoods
+loglik_poisson_s <- logLik(fit_poisson_s)
+loglik_negbinom_s <- logLik(fit_negbinom_s)
+loglik_normal_s <- logLik(fit_normal_s)
+```
+
+```{r}
+# Compare log-likelihoods
+loglik_values <- c(loglik_poisson_s, loglik_negbinom_s, loglik_normal_s)
+distribution_names <- c("Poisson", "Negative Binomial", "Normal")
+
+best_index <- which.max(loglik_values)
+best_distribution <- distribution_names[best_index]
+best_loglik <- loglik_values[best_index]
+
+# Print the results
+cat("Log-Likelihood Comparison:\n")
+for (i in 1:length(distribution_names)) {
+  cat(sprintf("%s: %f\n", distribution_names[i], loglik_values[i]))
+}
+
+cat("\nBest Fitting Distribution for Serious Variable:\n")
+cat(sprintf("Distribution: %s\n", best_distribution))
+cat(sprintf("Log-Likelihood: %f\n", best_loglik))
+```
+
+
+
