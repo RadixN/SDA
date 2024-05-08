@@ -1,0 +1,180 @@
+---
+title: "SIT741 Week 4 Practical"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE)
+```
+
+
+## Learning Goal
+1. You can use plots to select a candidate distribution family.
+2. You can fit the maximum likelihood estimation for a univariate distribution.
+3. You can use plots to check the fit of a distribution.
+
+
+## Exploratory data analysis
+
+We will use the *groundbeef* dataset from the *fitdistrplus* package. 
+
+```{r}
+library(tidyverse)
+library(fitdistrplus)
+data("groundbeef")
+groundbeef
+```
+
+> Read the documentation for the dataset to gain an initial understanding of the data.
+
+```{r}
+groundbeef %>% 
+  ggplot(aes(x = serving)) +
+  geom_histogram()
+hist(groundbeef[,1])
+```
+
+We can see some clumps of values. 
+We can see it better with a QQ-plot, where the clumps are shown as flat line segments.
+```{r}
+groundbeef %>% 
+  ggplot(aes(sample = serving)) +
+  geom_qq()  #compare quantiles of your data with normal distribution
+             ##longer horiontal values represents the pik values 
+```
+Or from the empirical cdf, where we see vertical jumps.
+```{r}
+groundbeef %>% 
+  ggplot(aes(x = serving)) +
+  stat_ecdf() ## the vertical long lines represent max probability , it also shows quantiles and the respectivw probabilitites 
+```
+
+
+
+The clumps can also be confirmed by counting observations by value.
+
+```{r}
+groundbeef %>% 
+  count(serving) %>% 
+  mutate(percent = n * 100 / sum(n)) %>% 
+  arrange(desc(n)) ### 21 percent of data is 80.0 and it appears 54 times 
+```
+
+> Load the *toxocara* data from the *fitdistrplus* package. Explore the data using QQ-plot and the ECDF plot.
+
+```{r}
+data("toxocara")
+  toxocara
+```
+
+## Choosing a candidate distribution family
+
+To choose a candidate distribution family, 
+we will use the Cullen and Frey graph, which is based on the idea of matching skewness and kurtosis.
+(See Week 3 lecture for if you are unfamiliar with these concepts.)
+The Cullen and Frey graph is implemented in the *descdist* function in *fitdistrplus*.
+
+```{r}
+library(magrittr)
+groundbeef %$% 
+  descdist(serving, boot = 100) ##take 100 samples 
+```
+
+We can see the distribution skew to the right and the kurtosis is greater than 3.
+
+From the plot, we can exclude the uniform, the logistic, and the exponential distribution.
+
+We will try the lognormal distribution. 
+
+If we simulate a lognormal sample that resembles the original data, we can see how the Cullen and Frey graph differs.
+```{r}
+set.seed(1000)
+
+simulated_data <- groundbeef %>% 
+  mutate(logserv = log(serving)) %>% 
+  mutate(simulated_serving = rlnorm(n = n(),
+                                    meanlog = mean(logserv),
+                                    sdlog = sd(logserv))) %>% 
+  dplyr::select(-logserv)
+
+
+simulated_data %>% 
+  ggplot(aes(x = simulated_serving)) +
+  geom_histogram()
+
+simulated_data %>% 
+  ggplot(aes(sample = simulated_serving)) +
+  geom_qq()
+
+simulated_data %$%  
+  descdist(simulated_serving, boot = 100)
+```
+
+> Generate the Cullen and Frey graph for the *toxocara* data. Which distributions are not appropriate?
+
+## Fit distribution via the maximum likelihood principle
+
+The *fitdist* function in *fitdistrplus* implemented the maximum likelihood estimation.
+
+```{r}
+estimate <- groundbeef %$%
+  fitdist(data = serving, 
+          distr = "lnorm") ## fit to log normal distribution
+```
+From the plots below, we can see that the fit is poor near the right tail and also at the centre, corresponding to the clumps in the histogram.
+```{r}
+estimate %>% 
+  plot
+```
+
+```{r}
+estimate %>% summary
+```
+
+> Produce simulated data using the estimated parameter values. Then plot the QQ-plot and PP-plot. Do you see a lack of fit for the simulated data?
+
+
+## Assess goodness of fit
+
+We can use plots to assess the goodness of fit. 
+The plots are similar to what we have seen before, the only difference being that we can choose to display the ones we believe relevant.
+
+```{r}
+estimate %>% 
+  cdfcomp
+```
+```{r}
+estimate %>% 
+  denscomp()
+```
+```{r}
+estimate %>% 
+  qqcomp
+```
+
+```{r}
+estimate %>% 
+  ppcomp
+```
+
+Clearly the fit is rather poor. 
+
+
+## Summary
+
+
+The steps for fitting a distribution: 
+ 
+* Explore data using histogram and QQ-plot
+* Plot kurtosis against skewness to help choose a candidate distribution family
+* Using maximum likelihood or other point estimation method to fit the distribution
+* Assess the goodness of fit.
+
+
+## Your turn
+
+1. Fit a Gamma distribution on the beef serving data.
+2. Fit a distribution on the *toxocara* data included in the *fitdistrplus* package.
+
+
+
