@@ -1,0 +1,303 @@
+---
+title: "Tidyverse"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE)
+```
+
+## Learning Goal
+You can recognize tidy data and start using tidyverse tools to implement data science workflows.
+
+## The package
+We will use the `tidyverse` package many many times in this unit. You can install the package using the following statement.
+```{r}
+install.packages("tidyverse")
+```
+
+
+After installation,  you can use the following command to expose functions from the package.
+```{r}
+library(tidyverse)
+```
+As you can see, it actually loads several other packages.
+
+> Find out how many packages are included in tidyverse from this page https://www.tidyverse.org/packages/ ? 
+
+### Piping
+Tidyverse use the pipe `%>%` to help organise analysis steps.
+
+When we apply a sequence of operations on a dataset, we can write:
+```{r}
+plot(density(iris$Sepal.Length))
+```
+That gives us a lot of parentheses and affects readability. 
+
+With the pipe `%>%`, we can rewrite the operations in the same order of execution.
+```{r}
+iris$Sepal.Length %>%  #piping 
+  density %>% 
+  plot
+```
+
+> Rewrite the function call `max(head(iris$Petal.Width, n = 20))` with the pipe operator `%>%`.
+```{r}
+iris$Petal.Width %>% 
+ head(n = 20) %>%  
+ max
+```
+
+
+
+```{r}
+iris$Petal.Width %>% 
+ head(n = 20) %>%  
+ max
+```
+
+## Tidy data
+
+
+### Why tidy data
+Tidy data provides a consistent starting point for your analysis, as shown in the following figure from  [R4DS](https://r4ds.had.co.nz).
+
+![Data science workflow based on tidyverse](https://d33wubrfki0l68.cloudfront.net/571b056757d68e6df81a3e3853f54d3c76ad6efc/32d37/diagrams/data-science.png)
+
+
+### How to recognise tidy data
+According to Hadley, a tidy dataset satisfies the following three conditions:
+
+1. Each variable must have its own column.
+2. Each observation must have its own row.
+3. Each value must have its own cell.
+
+![Tidy data defined by Hadley](https://d33wubrfki0l68.cloudfront.net/6f1ddb544fc5c69a2478e444ab8112fb0eea23f8/91adc/images/tidy-1.png)
+
+
+> Is the iris data above tidy? Why?
+
+
+
+
+We will talk more about tidy data later. For now, we will just start using tidyverse tools.
+
+## Importing data
+
+CSV is a common format for storing data. Let's load a csv file.
+```{r}
+heights <- read_csv("https://raw.githubusercontent.com/hadley/r4ds/main/data/heights.csv")
+head(heights)
+```
+
+You can see that the imported data is more than merely a data frame. These are called "tibbles" and it supports tidyverse operations. You can read more [here](http://r4ds.had.co.nz/tibbles.html).
+```{r}
+class(heights)
+```
+
+You can also see that categorical variables are parsed as the character type.
+To change that, you can specify the column types when reading the file.
+```{r}
+heights <- read_csv("https://raw.githubusercontent.com/hadley/r4ds/main/data/heights.csv",
+                    col_types = cols(
+                      sex = col_factor(levels = c("male", "female"))
+                    ))
+head(heights)
+```
+
+
+## Transforming data
+
+### Adding or changing variables
+Following the example above, often the default variable types are mostly good enough. You can create factor variables after the data is imported.
+```{r}
+heights1 <- read_csv("https://raw.githubusercontent.com/hadley/r4ds/main/data/heights.csv") %>% 
+  mutate(sex = factor(sex),
+         race = factor(race))
+head(heights1)
+```
+
+Actually, you may do multiple conversions at once.
+
+
+> Do the following two statements lead to different results?
+
+```{r}
+heights_1 <- read_csv("https://raw.githubusercontent.com/hadley/r4ds/main/data/heights.csv") %>% 
+  mutate(sex = factor(sex),
+         race =factor(race))
+```
+
+```{r}
+heights_2 <- read_csv("https://raw.githubusercontent.com/hadley/r4ds/main/data/heights.csv") %>% 
+  mutate_if(is_character, factor)
+```
+
+> Read the documentation for the functions `mutate_all` and `mutate_at`. What can they do?
+
+
+The `nycflights13` package contains a `flights` data frame. 
+```{r}
+library(nycflights13)
+data(flights)
+head(flights)
+```
+
+
+In the "flights" dataset, we see that the column `dep_delay` is the difference between `dep_time` and `sched_dep_time`. If the column is not provided, you can compute it as follows.
+```{r}
+flights <- flights %>% mutate(dep_delay2 = dep_time - sched_dep_time)
+```
+
+> Now try to create a new variable showing the arrival delay and compare it with `arr_delay`.
+
+
+
+### Subsetting
+How to select the relevant subsets from the original data?
+
+#### Vertically: `select`
+```{r}
+flights %>% 
+  dplyr::select(year, origin)
+```
+This is similar to the `SELECT` keyword in SQL.
+
+
+#### Horizontally: `filter`
+```{r}
+flights %>% 
+  filter(origin == 'JFK')
+```
+
+This is similar to the `WHERE` keyword in SQL.
+
+### Aggregation
+dplyr provides the function `summarise` which has the most flexibility.
+```{r}
+flights %>% 
+  summarise(shortest_air_time = min(air_time, na.rm = T), # remove during calculations instead of removing permanently from data with isnull
+            longest_air_time = max(air_time, na.rm = T))
+```
+
+Do those numbers surprise you?
+
+
+dplyr also provides many pre-made aggregation functions such as `n_distinct`.
+
+```{r}
+flights %>% 
+  summarise(number_of_airport = n_distinct(origin), 
+            max_delay = max(dep_delay, na.rm = T))
+```
+
+
+
+
+#### Group-wise aggregation
+Aggregation gets interesting when it is done by groups.
+```{r}
+flights %>% 
+  group_by(origin) %>% 
+  summarise(min_delay = min(dep_delay, na.rm = T),
+            max_delay = max(dep_delay, na.rm = T))
+```
+```{r}
+unique(flights$origin)
+```
+
+> Find out the number of carriers using each NYC airport.
+
+```{r echo = FALSE}
+flights %>% group_by(origin) %>% summarise(carrier_count = n_distinct(carrier))
+
+```
+```{r}
+flights %>% group_by(origin) %>% summarise(carrier_count =  length(unique(flight)))
+```
+
+> Find out the number of flights in each airport and each month.
+
+```{r echo=FALSE}
+flights %>% 
+  group_by(origin, month) %>% 
+  summarise(cnt = n())
+```
+
+
+### Merging data frames
+You can merge two data frames.
+
+
+
+```{r}
+flights <- flights %>%
+  left_join(
+    (airports %>% 
+       dplyr::select(faa, dest_airport = name)),
+     by = c("dest" ="faa")
+  )
+```
+
+> Modify the example above to use the `inner_join` function. How is the result different? 
+
+
+```{r echo=FALSE}
+flights <- flights %>%
+  inner_join(
+    (airports %>% 
+       dplyr::select(faa, dest_airport = name)),
+     by = c("dest" ="faa")
+  )
+```
+
+
+That's the gist of tidyverse transformation tools. 
+
+
+## More tasks:
+
+Read in the weather data in the `nycflights` dataset from https://raw.githubusercontent.com/hadley/nycflights13/master/data-raw/weather.csv . Then change the variable `origin` to have the factor data type. 
+```{r, echo=FALSE}
+weather <- read_csv("https://raw.githubusercontent.com/hadley/nycflights13/master/data-raw/weather.csv") %>% mutate(origin = factor(origin))
+```
+
+Find out the list of carriers using each NYC airport 
+```{r}
+flights %>% 
+  group_by(origin) %>% 
+  summarise(carrier_name = unique(carrier))
+  #summarise(cnt = n())
+```
+
+
+Find out the number of destinations from each airport 
+```{r}
+flights %>% 
+  group_by(origin) %>% 
+  summarise(num_dest = n_distinct(dest))
+```
+
+
+Find out the shortest and longest flight from each airport 
+
+```{r}
+flights %>% 
+  group_by(origin) %>% 
+  summarise(shortest_air_time = min(air_time, na.rm = T),
+            longest_air_time = max(air_time, na.rm = T))
+```
+
+```{r}
+flights <- flights %>%
+  inner_join(
+    (airports %>% 
+       dplyr::select(faa, dest_airport = name)),
+     by = c("dest" ="faa")
+  )
+```
+
+
+
+
+
