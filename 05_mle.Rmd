@@ -1,0 +1,271 @@
+---
+title: "SIT741 Week 5 Practical"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, eval = TRUE)
+```
+
+
+## Learning Goal
+1. You can explain MLE and its properties in terms of the score function and the Fisher information.
+2. You can fit the maximum likelihood estimation for any likelihood function.
+3. You can use plots to check the reliability of MLE.
+
+## Why learn to run MLE
+
+In R, MLE has been implemented for many common models and distributions. 
+Most of the time, you just need to read the documentation and find the right "fit" function to call with your data.
+But sooner or later, you need to define more flexible models that require you to compute the MLE directly from the likelihood function.
+This is particularly common when you are dealing with multi-level or hierarchical models.
+
+## Understanding MLE
+
+We will explore MLE using simulated data from a normal distribution. 
+Last week, we saw the *fitdistplus* package can be used for fitting the normal distribution. 
+The package actually performs MLE under the hood.
+
+
+Let's first simulate 30 observations from the standard normal.
+```{r}
+library(tidyverse)
+
+set.seed(100)
+n <- 30
+x <- rnorm(n, mean = 0, sd = 1)
+
+tibble(x = x) %>% 
+  ggplot(aes(x)) +
+  geom_histogram(aes(y = stat(density))) +
+  xlim(-10, 10) +
+  stat_function(
+    fun = dnorm, 
+    color = 'red'
+  )
+```
+
+
+For simplicity, we will assume that the standard deviation is known (being 1) and only the mean needs to be estimated. 
+We start with the log-likelihood function.
+```{r}
+ll <- function(mu){
+  tibble(x = x) %>% 
+    mutate(constant = log(2 * pi * 1), #sigma^2 = 1
+           se = (x - mu)^2/1) %>% 
+    summarise(ll = -1/2*sum(constant + se)) %>% 
+    .$ll #returns the log likelihood function
+}
+
+tibble(mu = seq(-10, 10, by =0.1)) %>% 
+  mutate(llik = map_dbl(mu, ll)) %>% 
+  ggplot() +
+  geom_line(aes(x = mu, y = llik))
+```
+```{r}
+mean(x)
+```
+
+Then the score function is the derivative of the loglikelihood function.
+
+```{r}
+U <- function(mu){
+  tibble(x = x) %>%
+    summarise(U = sum(x - mu)) %>% 
+    .$U
+}
+
+tibble(mu = -10:10) %>% 
+  mutate(u = map_dbl(mu, U)) %>% #map_dbl instead of using loop, by iterating through each value 
+  ggplot() +
+  geom_line(aes(x = mu, y = u))
+```
+****** The function is equal to zero when mu is equal to zero, which is expected for nomal distribution with given parameter ********
+
+We can see that the score function has a root near 0. 
+So the MLE for the mean is likely to be near 0, which we shall see later is the case.
+
+Also because the score function is a straight line here, its derivative is a constant.
+This also means the Fisher information is constant.
+Consequently the variance of the MLE depends on only the sample size, but not the sample itself.
+```{r}
+I <- function(mu){
+  tibble(x = x) %>%
+    count() %>% 
+    .$n
+}
+
+tibble(mu = -10:10) %>% 
+  mutate(i = map_dbl(mu, I)) %>% 
+  ggplot() +
+  geom_line(aes(x = mu, y = i))
+```
+
+### Poisson example
+Let's first simulate 29 observations from the poisson distribution $f_X(x) = \frac{\lambda^{x}e^{-\lambda}}{x!}$.
+```{r}
+n <- 29
+x <- rpois(n, lambda = 3)
+
+tibble(x = x) %>% 
+  ggplot() +
+  geom_bar(aes(x = x))
+```
+
+
+
+
+The score function is:
+```{r}
+U <- function(lambda){
+  tibble(x = x) %>%
+    summarise(U = sum(x/lambda - 1)) %>% 
+    .$U
+}
+
+tibble(lambda = 0:10) %>% ###alternatively use lamda=seq(1,5, 0.1) to get smoother graph
+  mutate(u = map_dbl(lambda, U)) %>% 
+  ggplot() +
+  geom_line(aes(x = lambda, y = u)) +
+  geom_hline(yintercept = 0, color = 'red')
+```
+
+The observed Fisher information is not constant in this case: 
+```{r}
+I <- function(lambda){
+  tibble(x = x) %>%
+    summarise(I = - sum(-lambda/lambda^2)) %>%  # we know the true lambda, so the expectation of x_i
+    .$I
+}
+
+tibble(lambda = seq(0.1, 10, 0.1)) %>% 
+  mutate(i = map_dbl(lambda, I)) %>% 
+  ggplot() +
+  geom_line(aes(x = lambda, y = i))
+```
+
+You can see that predicting a small lambda estimate may lead to a small variance estimate.
+
+> Simulate a random sample from a Bernoulli distribution. Then plot the score function.
+
+## Fitting MLE
+
+Fitting MLE involves the following steps.
+
+1. Define the negative log-likelihood function
+2. Define the analytical gradients of the negative log-likelihood function
+3. Choose an optimisation method
+3. Choose the initial values for the optimiser
+4. Run the optimiser
+5. Extract the estimates and standard errors.
+
+With a good software package, you may rely on the software defaults for many of the above steps.
+
+We continue using the normal example above. Given a common distribution, say xxx, we can the dxxx R function to get the log likelihood, with the argument "log = TRUE".
+```{r}
+
+set.seed(100)
+n <- 30
+x <- rnorm(n, mean = 0, sd = 1) ## xs<-rerun(1000,rnorm(n,mean=o,sd=1)) ## rerun the code 100 times, as sample size increases, the distribution inclunes towarss normal distribution. 
+
+library(bbmle)
+
+nll <- function(mu, sigma){
+  - sum(dnorm(x, 
+              mean = mu,
+              sd = sigma,
+              log = TRUE))
+}
+```
+
+We will use the default optimiser (Nelder-Mead) and two initial values 2 and 4. 
+Often looking at the histogram can help determine good initial values for shape parameters.
+```{r}
+fitted_norm <- mle2(nll,
+                     start = list(mu = 2,
+                                  sigma = 4))### one resonable way is to use sample mean and std   
+                                                  #(mu=mean(x),sigma=sd(x)) as initial estimate
+
+library(broom)
+tidy(fitted_norm)
+```
+
+Apparently the mean is easier to estimate than the variance.
+
+Let's look at how the score function behaves at the true mean on 100 random samples.
+```{r}
+#set seed here for reproduceable output 
+n <- 30 ###variance of output /variance of scores is dependent on sample size and not on data itself 
+xs <- rerun(1000, rnorm(n, mean = 0, sd = 1))  # 30 numbers repeat 1000 times 
+
+get_u <- function(x){
+  sum(x - 0) # true mean is 0, substitute 0 with whatever mean you take 
+}
+
+scores <- map_dbl(xs, get_u)
+
+tibble(u = scores) %>% 
+  ggplot() +
+  geom_histogram(aes(x=u))
+
+```
+
+The mean and variance of the scores are consistent with the theoretical values (0, 30).
+```{r}
+tibble(x = scores) %>% 
+  summarise(mean(x), var(x)) ### ****Y is the variance so high when the initial parameters are set to different values ???/
+```
+
+You can also see the mean and variance of the MLEs are also consistent with the theoretical values (0, 1/30).
+```{r}
+estimates <- map_dfr(xs,   ####map_dfr is work on rows, dfc works with columns 
+                     function(x) {
+                       mle2(function(mu, sigma) {
+                         -sum(dnorm(
+                           x,
+                           mean = mu,
+                           sd = sigma,
+                           log = TRUE
+                         ))
+                       },
+                       start = list(mu = 2,
+                                    sigma = 4)) %>%
+                         tidy
+                     })
+
+estimates %>% 
+  group_by(term) %>% 
+  summarise(mean(estimate),
+            var(estimate))
+```
+
+```{r}
+estimates %>% 
+  ggplot() +
+  geom_histogram(aes(x = estimate)) +
+  facet_wrap(~term)
+```
+
+> Use *mle2* to estimate the MLE for the random sample you generated for the Bernoulli distribution. Repeat the simulation 100 times and see how the score function and the Fisher information distribute.
+
+## Summary
+
+
+The steps for fitting MLE: 
+ 
+1. Define the negative log-likelihood function
+2. Define the analytical gradients of the negative log-likelihood function
+3. Choose an optimisation method
+3. Choose the initial values for the optimiser
+4. Run the optimiser
+5. Extract the estimates and standard errors.
+
+
+## Your turn
+
+1. Repeat the above experiments for the Poisson distribution.
+
+2. Can you write the negative log-likelihood function for logistic regression? If yes, then you can write your own function for fitting logistic regression. (In practice, the IRLS (iteratively reweighted least squares) algorithm is used for MLE for GLM.)
+
+
+
