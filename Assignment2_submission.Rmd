@@ -1,0 +1,473 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+################################################################################
+################################################################################
+Question 1: Import weather data 
+################################################################################
+################################################################################
+1.1: No coding 
+1.2 Import Data
+```{r}
+df_weather_mse <- read_csv("/Users/radhikaorari/Documents/UNI/23Semester2/SDA/Assignment2/weather_bom.csv")
+```
+```{r}
+head(df_weather_mse)
+```
+
+Import all required libraries 
+```{r}
+library(tidyverse)
+library(lubridate)
+library(zoo)
+```
+
+Create Date column combining Day,Month,Year 
+```{r}
+df_weather_mse <- df_weather_mse %>%
+  mutate(Date =  make_date(Year, Month, Day))
+df_weather_mse
+```
+
+```{r}
+# Extract the minimum and maximum dates from  data
+min_date <- min(df_weather_mse$Date)
+max_date <- max(df_weather_mse$Date)
+
+# Convert minimum and maximum dates to human-readable format
+min_date_readable <- format(min_date, "%B %d, %Y")
+max_date_readable <- format(max_date, "%B %d, %Y")
+
+# Print the human-readable dates
+cat("Minimum Date :", min_date_readable, "\n")
+cat("Maximum Date :", max_date_readable, "\n")
+
+```
+
+Check for missing values 
+```{r}
+missing_counts <- df_weather_mse %>%
+  summarize_all(~sum(is.na(.)))
+missing_counts
+```
+Function to replace missing values with a value before or after it.
+```{r}
+replace_na_with_avg <- function(x) {
+  if (all(is.na(x))) {
+    return(x)
+  } else {
+    return(zoo::na.approx(x))
+  }
+}
+```
+
+Replace the missing values 
+```{r}
+# List of columns to replace NAs
+selected_columns <- c("TMAX", "TMIN", "Rainfall", "SunExposure")
+
+# Replace NAs for the above columns using the across function
+df_weather_mse <- df_weather_mse %>%
+  mutate(across(all_of(selected_columns), replace_na_with_avg))
+
+```
+
+Recheck to ensure all missing values are treated 
+```{r}
+missing_counts <- df_weather_mse  %>%
+  summarize_all(~sum(is.na(.)))
+missing_counts
+```
+```{r}
+df_weather_mse
+```
+
+
+```{r}
+df_weather_mse %>%
+  ggplot(aes(x = Date, y = TMAX)) + 
+  geom_line()
+```
+
+```{r}
+df_weather_mse %>%
+  ggplot(aes(x = Date, y = TMIN)) + 
+  geom_line()
+```
+
+
+
+```{r}
+number_of_rows <- nrow(df_weather_mse)
+print(number_of_rows)
+head(df_weather_mse)
+
+```
+Question 2: Modeling:No code 
+
+################################################################################
+################################################################################
+Question 3: Car accident data analysis for south eastern metropolitan Region
+################################################################################
+################################################################################
+Q3.1 Which region do you pick?
+```{r}
+print(selected_region_data)
+```
+```{r}
+selected_region_data$DATE_numeric <- as.numeric(as.Date(selected_region_data$DATE))
+```
+
+```{r}
+
+selected_region_data %>% 
+  ggplot(aes(x = DATE_numeric, 
+             y = TOTAL_ACCIDENTS)) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+```
+#####################################################################
+3.2 Linear Model
+#####################################################################
+3.2.1 Fit the model  
+```{r}
+lmfit_car <- lm(TOTAL_ACCIDENTS ~ DATE_numeric, 
+            data = selected_region_data)
+
+lmfit_car %>% 
+  summary
+```
+```{r}
+library(broom)
+lmfit_car %>% 
+  tidy
+```
+```{r}
+(
+results_car <- lmfit_car %>% 
+  augment
+)
+results_car
+```
+```{r}
+lmfit_car %>% 
+  glance
+```
+
+# Plot QQ plot 
+```{r}
+results_car %>% 
+  ggplot(aes(sample = .std.resid)) +
+  geom_qq() + 
+  geom_qq_line(col = 'steelblue')
+```
+
+
+Plot Residuals vs fitted value:
+```{r}
+results_car %>% 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point() + 
+  geom_quantile() +
+  geom_smooth(colour = 'firebrick') 
+```
+
+Plot residual vs hat to analyse outliers and high leverage points
+```{r}
+
+results_car %>% 
+  ggplot(aes(x = .hat, y = .resid)) +
+  geom_point() + 
+  geom_hline(yintercept = 0,
+             colour = "red",
+             linetype = 'dotted')
+```
+
+```{r}
+results_car %>% 
+  mutate(big_hat = .hat > 0.03) %>% 
+  ggplot(aes(x = .hat, y = .cooksd)) +
+  geom_point(aes(color = big_hat)) + 
+  geom_hline(yintercept = 0,
+             linetype = 'dotted')
+```
+
+################################################################################
+3.3: Fitting GAM
+################################################################################
+
+Visualisation
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(mgcv)
+
+selected_region_data %>%
+  ggplot(aes(x = DATE_numeric, y =TOTAL_ACCIDENTS)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x), method.args = list(family =nb()))
+```
+
+Fit the GAM model
+```{r}
+library(mgcv)
+gamfit1_car_nb <- gam(TOTAL_ACCIDENTS ~ s(DATE_numeric), 
+                    data = selected_region_data, 
+                    family = nb()
+                    )
+gamfit1_car_nb %>% 
+  summary
+```
+```{r}
+gam.check(gamfit1_car_nb)
+```
+
+```{r}
+results_car_gam <- data.frame(
+  .fitted = fitted(gamfit1_car_nb),
+  .resid = resid(gamfit1_car_nb)
+)
+
+# Now, create the plot
+library(ggplot2)
+library(quantreg) # for geom_quantile
+
+results_car_gam %>% 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.5) +  # Added alpha for better visualization if points overlap
+  geom_quantile() +           # This will plot quantile regression lines
+  geom_smooth(colour = 'firebrick', method = "loess") +  # Using loess for general trend
+  theme_minimal() +  # Optional: Cleaner theme
+  labs(title = "Fitted vs. Residuals",
+       x = "Fitted Values",
+       y = "Residuals")
+```
+
+
+```{r}
+library(mgcv)
+library(ggplot2)
+
+# Extracting leverage (hat) values
+hat_values <- influence(gamfit1_car_nb)
+
+# Extracting residuals
+residuals <- residuals(gamfit1_car_nb)
+
+# Creating a data frame to hold these values
+results_gam <- data.frame(hat = hat_values, resid = residuals)
+
+# Creating the plot
+results_gam %>%
+  ggplot(aes(x = hat, y = resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, colour = "red", linetype = 'dotted')
+
+```
+################################################################################
+Q3.4: Augment
+################################################################################
+```{r}
+selected_region_data$DayOfWeek <- factor(selected_region_data$DayOfWeek)
+class(selected_region_data$DayOfWeek)
+```
+
+```{r}
+
+gamfit2_car_nb_aug <- gam(TOTAL_ACCIDENTS ~ s(DATE_numeric) + s(DayOfWeek,k=7), 
+             data = selected_region_data, 
+             family = nb())
+summary(gamfit2_car_nb_aug)
+```
+
+
+```{r}
+gam.check(gamfit2_car_nb_aug)
+```
+
+```{r}
+results_car_gam <- data.frame(
+  .fitted = fitted(gamfit2_car_nb_aug),
+  .resid = resid(gamfit2_car_nb_aug)
+)
+
+# Now, create the plot
+library(ggplot2)
+library(quantreg) # for geom_quantile
+
+results_car_gam %>% 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.5) +  # Added alpha for better visualization if points overlap
+  geom_quantile() +           # This will plot quantile regression lines
+  geom_smooth(colour = 'firebrick', method = "loess") +  # Using loess for general trend
+  theme_minimal() +  # Optional: Cleaner theme
+  labs(title = "Fitted vs. Residuals",
+       x = "Fitted Values",
+       y = "Residuals")
+```
+
+################################################################################
+Q3.5: AIC, coefficient estimates,graphs
+################################################################################
+
+```{r echo=FALSE}
+AIC(lmfit_car,
+    gamfit1_car_nb,
+    gamfit2_car_nb_aug)
+gam.check(gamfit2_car_nb_aug)
+```
+```{r}
+summary(lmfit_car)
+summary(gamfit1_car_nb)
+summary(gamfit2_car_nb_aug)
+```
+```{r}
+gam.check(gamfit2_car_nb_aug)
+```
+
+```{r}
+
+gam.check(gamfit1_car_nb)
+```
+
+
+################################################################################
+3.6:Residual analysis 
+################################################################################
+```{r}
+
+# Obtain residuals for model 
+lm_residuals <- residuals(lmfit_car)
+gam_residuals1 <- residuals(gamfit1_car_nb)
+gam_residuals2 <- residuals(gamfit2_car_nb_aug)
+
+
+# Check for autocorrelation in residuals
+acf(lm_residuals)
+acf(gam_residuals1)
+acf(gam_residuals2)
+
+
+
+```
+```{r}
+head(selected_region_data)
+```
+
+
+
+################################################################################
+################################################################################
+Q4: Weather Data
+################################################################################
+################################################################################
+Calculate temperature as mean of TMIN and TMAX
+```{r}
+# Create Temperature column as the average of TMIN and TMAX
+df_weather_mse <- df_weather_mse %>%
+  mutate(Temperature = (TMIN + TMAX) / 2)
+```
+
+
+Find T95 
+```{r}
+# Compute T95 as the 95th percentile of temperature
+T95 <- quantile(df_weather_mse$Temperature, 0.95)
+T95
+```
+
+Extract temperature for next 2 days 
+```{r}
+# Add lead (similar to shift in Python) of Temperature for the next days
+df1_weather_mse <- df_weather_mse %>%
+  mutate(Temperature_lead1 = lead(Temperature, 1),
+         Temperature_lead2 = lead(Temperature, 2))
+```
+
+Calculate EHIsig
+```{r}
+# Calculate EHIsig
+df1_weather_mse <- df1_weather_mse %>%
+  mutate(EHIsig = (Temperature + Temperature_lead1 + Temperature_lead2) / 3 - T95)
+```
+
+Calculate EHIaccl
+```{r}
+# Calculate EHIaccl
+df1_weather_mse <- df1_weather_mse %>%
+  mutate(avg_prev_30 = rollapply(Temperature, width = 30, FUN = mean, fill = NA, align = "right")) %>%
+  mutate(EHIaccl = (Temperature + Temperature_lead1 + Temperature_lead2) / 3 - avg_prev_30)
+```
+
+Calculate EHF
+```{r}
+# Calculate EHF
+df1_weather_mse <- df1_weather_mse %>%
+  mutate(EHF = pmax(0,EHIsig) * pmax(1, EHIaccl))
+```
+
+```{r}
+print(df1_weather_mse )
+```
+
+Now we will align the dates as per car accident data.
+```{r}
+# Filter the data
+df2_weather_mse <- df1_weather_mse %>% 
+  filter(!(Date <= "2015-12-31" | Date >= "2020-07-01"))
+```
+
+Visualise headwave trend over the years
+```{r}
+df2_weather_mse %>% 
+  ggplot() +
+  geom_line(aes(Date, EHF))+
+  labs(title = "EHF Over Time", x = "Years", y = "EHF")
+```
+
+```{r}
+df2_weather_mse %>%
+  mutate(MonthLabel = factor(Month, labels = month.abb)) %>% 
+  ggplot() +
+  geom_line(aes(x = MonthLabel, y = EHF)) +
+  labs(title = "EHF Over The months", x = "Month", y = "EHF") 
+```
+
+
+Merge data
+```{r}
+df_merged_data <- merge(selected_region_data, df2_weather_mse[, c("DATE_numeric", "EHF")], by = "DATE_numeric", all.x = TRUE)
+```
+
+Fit new model with EHF
+```{r}
+gamfit3_CWehf <- gam(TOTAL_ACCIDENTS ~ s(DATE_numeric) + s(DayOfWeek, k=7) + s(EHF), 
+                          data = df_merged_data, 
+                          family = nb())
+summary(gamfit3_CWehf)
+```
+4.3.2:Incorporate Sun Exposure
+
+```{r}
+df_merged_data1 <- merge(df_merged_data, df2_weather_mse[, c("DATE_numeric", "SunExposure")], by = "DATE_numeric", all.x = TRUE)
+```
+
+```{r}
+gamfit4_CWsun <- gam(TOTAL_ACCIDENTS ~ s(DATE_numeric) + s(DayOfWeek, k=7) + s(SunExposure), 
+                          data = df_merged_data1, 
+                          family = nb())
+summary(gamfit4_CWsun)
+```
+ 
+```{r echo=FALSE}
+AIC(gamfit1_car_nb,
+    gamfit2_car_nb_aug,
+    gamfit3_CWehf,
+    gamfit4_CWsun)
+gam.check(gamfit4_CWsun)
+```
+
+
+
