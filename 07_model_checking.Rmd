@@ -1,0 +1,153 @@
+---
+title: "SIT741 Week 7 Practical" 
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, eval = TRUE)
+```
+
+
+## Learning Goal
+1. You can use the *broom* R package to clean up model outputs.
+2. You can perform model checking for linear regression through residuals.
+
+## Credit rating vs income
+
+We will use the Credit rating data from the *ISLR* package. 
+Let's look at the data quickly using the *skim* function from the *skimr* package.
+```{r}
+library(tidyverse)
+library(ISLR)
+library(skimr)
+
+skim(Credit)
+```
+
+Let's fit a linear model for the response variable *Rating*.
+```{r}
+Credit %>% 
+  ggplot(aes(x = Income, 
+             y = Rating)) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+```
+
+
+```{r}
+lmfit <- lm(Rating ~ Income, 
+            data = Credit)
+
+lmfit %>% 
+  summary
+```
+
+## Clean up model outputs using *broom*
+
+The *broom* package provides useful functions to clean up the outputs.
+
+The *tidy* function outputs a data frame summarising the coefficients.
+```{r}
+library(broom)
+lmfit %>% 
+  tidy
+```
+
+The *augment* function outputs fitted values and residuals.
+```{r}
+(
+results <- lmfit %>% 
+  augment
+)
+```
+
+The *glance* function outputs overall summaries of the fitted model.
+```{r}
+lmfit %>% 
+  glance
+```
+
+
+## Checking distributional assumptions
+
+We can use QQ-plot to check whether the residuals follow the theoretical distribution.
+
+```{r}
+results %>% 
+  ggplot(aes(sample = .std.resid)) +
+  geom_qq() + 
+  geom_qq_line(col = 'steelblue')
+```
+The QQ-plot shows that the residuals have a finite range. This may indicate that a linear model is not  appropriate here. 
+
+
+Then we should check that residuals are independent and having constant variance. 
+This often involves plotting residuals against the fitted values and predictor values.
+
+```{r}
+results %>% 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point() + 
+  geom_quantile() +
+  geom_smooth(colour = 'firebrick') 
+```
+
+As the model has only one predictor, the following plot does not provide new information. 
+```{r}
+results %>% 
+  ggplot(aes(x = Income, y = .resid)) +
+  geom_point() + 
+  geom_quantile() +
+  geom_smooth(colour = 'firebrick') 
+```
+
+### Checking outliers and high leverage points
+
+An observation has a high leverage if it has an unusual predictor value. 
+This means potential risk of overfitting. We can check residuals against the leverage.
+
+```{r}
+results %>% 
+  ggplot(aes(x = .hat, y = .resid)) +
+  geom_point() + 
+  geom_hline(yintercept = 0,
+             linetype = 'dotted')
+```
+There are a couple of high leverage observations with large residuals.
+Cook's distance measures the influence of each observation on the coefficients.
+Plotting the leverage against the Cook's distance seems to suggest that these observations (most likely for high Income individuals) may need to be removed from the model.
+
+```{r}
+results %>% 
+  mutate(big_hat = .hat > 0.03) %>% 
+  ggplot(aes(x = .hat, y = .cooksd)) +
+  geom_point(aes(color = big_hat)) + 
+  geom_hline(yintercept = 0,
+             linetype = 'dotted')
+```
+
+## Checking goodness of fit
+The plots above can also show unexplained effects, indicating a lack of fit of the model.
+
+A lack of fit can also be identified from summary statistics.
+```{r}
+lmfit %>% 
+  glance
+```
+
+Here the model has a relatively low $R^2$. 
+
+## Summary
+
+
+1. Use *broom* package to process model outputs.
+2. Check residuals for violation of modeling assumptions, and potential outliers and high leverage points causing overfitting risk. 
+ 
+
+
+## Your turn
+
+1. Try adding additional predictors in the model above and then analyse the results.
+
+
+
