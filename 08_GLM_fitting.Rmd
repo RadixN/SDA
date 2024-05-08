@@ -1,0 +1,324 @@
+---
+title: "SIT741 Week 8 Practical"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, eval = TRUE)
+```
+
+
+## Learning Goal
+1. You can fit a GLM using R
+2. You can use deviance residuals to check model fit
+3. You can process timestamped data
+
+## Fitting GLM
+
+We will follow the heart disease example in Section 3.3 of the book *Generalized Additive Models: An Introduction with R* (GAMAIR).
+
+The data contains the proportion of patients suffering a heart attack, at different creatinine kinase (CK) levels. (You may read more about the test here: https://labtestsonline.org/tests/creatine-kinase-ck)
+
+```{r}
+library(tidyverse)
+
+heart <- data.frame(
+  ck = 0:11*40+20,
+  ha=c(2,13,30,30,21,19,18,13,19,15,7,8),
+  ok=c(88,26,8,5,0,1,1,1,1,0,0,0))
+
+heart <- heart %>% 
+  mutate(p = ha/(ha + ok))
+
+heart %>% 
+  ggplot() +
+  geom_point(aes(x = ck, y = p)) +
+  xlab("Creatinine kinase level") +
+  ylab("Proportion Heart Attack")
+```
+
+As the response variable contains proportions, a natural model is the logistic regression model.
+```{r}
+mod_0 <- glm(cbind(ha, ok) ~ ck, 
+             family=binomial(link=logit),
+             data=heart)
+```
+
+Note how the response variable consists of two columns. We used the canonical link function (logit).
+
+
+We use the *visreg* package to visualise the fitted model.
+```{r}
+library(visreg)
+mod_0 %>% 
+  visreg(gg = TRUE) +
+  ylab("Log odds")
+```
+
+This visualises the effective responses.
+
+
+Similar to the ordinary linear models, GLM can be checked using residuals. We talked about the deviance residuals in the lecture.
+```{r}
+plot(mod_0)
+```
+
+By checking Cook's distance, we see that observations 1 and 3 should be checked as potential outliers, as we already saw in the previous plot. But it may just be the model is too simple.
+
+Let's add a quadratic term and a cubic term.
+
+```{r}
+mod_2 <- mod_0 %>% 
+  update(.~. + 
+           I(ck^2) +
+           I(ck^3))
+
+plot(mod_2)
+```
+
+## Processing date and date-time data
+We mentioned in the lecture that many routinely collected datasets contain timestamps. And often the time information is important for analysis. Date and date-time are special data types that need special attention. 
+
+Read [Chapter 16 of R4DS](http://r4ds.had.co.nz/dates-and-times.html) to survey what the `lubridate` package can do for you.
+
+### R data types for date and date-time
+
+There are many date/time data types in `R` (as in other computer languages). Normally date and date-time are treated differently. 
+
+> Load the `flights` data set from `nycflights`. What date or date-time data type(s) can you find? 
+
+```{r echo=FALSE, eval = FALSE}
+library(tidyverse)
+library(nycflights13)
+flights %>%  
+  sapply(class)
+```
+
+
+
+We will use the `lubridate` package to process date and date-time data. Let's first verify that the existing date-time in `flights` has the correct time zone.
+```{r}
+library(tidyverse)
+library(nycflights13)
+library(lubridate)
+tz(flights$time_hour)
+```
+
+If the timezone is incorrect, we can set the correct time zone.
+```{r}
+flights <- flights %>% 
+  mutate(time_hour = force_tz(time_hour, 
+                              tzone = "America/New_York"))
+```
+
+> Load the `weather` data set from `nycflights13`. Does the variable `time_hour` have the correct time zone? (Is it consistent with the information provided in columns 2 to 5?)
+
+Let's piece together the complete departure schedule.
+```{r}
+flights <- flights %>% 
+  mutate(sched_dep_datetime = make_datetime(year, 
+                                            month, 
+                                            day, 
+                                            hour, 
+                                            minute))
+```
+
+> Follow the examples in [R4DS](http://r4ds.had.co.nz/dates-and-times.html#from-individual-components) to recover the complete date-time for the actual departures, the scheduled arrivals, and the actual arrivals. Do you see any problems with the solution in R4DS? (Hint: What would happen when the delay is longer than 24 hours?)
+
+```{r echo=FALSE}
+make_datetime_100 <- function(year, month, day, time) {
+  make_datetime(year, 
+                month, 
+                day, 
+                time %/% 100, 
+                time %% 100)
+}
+
+flights <- flights %>% 
+#  filter(!is.na(dep_time), !is.na(arr_time)) %>% 
+  mutate(
+    dep_time = make_datetime_100(year, month, day, dep_time),
+    arr_time = make_datetime_100(year, month, day, arr_time),
+    sched_dep_time = make_datetime_100(year, month, day, sched_dep_time),
+    sched_arr_time = make_datetime_100(year, month, day, sched_arr_time)
+  ) 
+```
+
+
+
+So far, we have seen only the data type `POSIXct` for date-time. Did we mention there are data types for dates?
+```{r}
+flights <- flights %>% 
+  mutate(sched_dep_date = as_date(sched_dep_time)) 
+
+class(flights$sched_dep_time)
+class(flights$sched_dep_date)
+```
+
+It can come in handy sometimes.
+```{r}
+flights %>% 
+  count(sched_dep_date) %>% 
+  ggplot(aes(x = sched_dep_date, y = n)) + 
+  geom_line()
+```
+
+> Using the `weather` data, generate the number of hours in each day when visibility (`visib`) is at least 10 miles at JFK.
+```{r echo=FALSE}
+weather %>% 
+  filter(origin == "JFK") %>% 
+  mutate(measure_date =  make_date(year, month, day)) %>% 
+  group_by(measure_date) %>% 
+  summarise(hour_perf_visib = sum(visib >= 10)) %>% 
+  ggplot(aes(x = measure_date, y = hour_perf_visib)) + geom_line()
+```
+
+### Deriving additional information
+The daily number of scheduled flights clearly shows a weekly pattern. You can use the `wday` function to get the day of the week.
+```{r}
+flights %>% 
+  mutate(dep_wkday = wday(sched_dep_time, label = TRUE)) %>% 
+  filter(dep_wkday == 'Sat') %>% 
+  count(sched_dep_date) %>% 
+  ggplot(aes(x = sched_dep_date, 
+             y = n)) + 
+  geom_line()
+```
+
+> What can you say about the winter schedule for Saturday flights? Does the same pattern apply to other days of the week?
+
+## Window function 
+
+So far in this unit, we often assume that the observations are independent, identically distributed (i.i.d.). That implies that given an input data frame to a statistical procedure, if we scramble the rows, the results wouldn't change. But when we have routinely collected data, often the results will depend on adjacent rows. In particular, grouping, sorting, and aggregations often need to be performed across rows. Some of these may be achieved through the `group_by` and `summarise` function in `dplyr`. But others are usually handled with the [window functions](http://jakewheat.github.io/sql-overview/sql-2003-foundation-grammar.html#_6_10_window_function) (or the [analytical functions](https://docs.oracle.com/cd/E11882_01/server.112/e41084/functions004.htm)). In this week, we will learn the window functions in R.
+
+Please read [this documentation](https://cran.r-project.org/web/packages/dplyr/vignettes/window-functions.html) for an overview of the `dplyr` window functions.
+
+
+### Standard aggregation
+You do not need the window functions for simple aggregations.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(nycflights13)
+
+daily_weather <- weather %>% 
+  filter(origin == "EWR") %>% 
+  group_by(date = make_date(year, 
+                            month, 
+                            day))
+
+
+daily_temperature_range <- daily_weather  %>% 
+  summarise(TMAX = max(temp), 
+            TMIN = min(temp))
+
+daily_temperature_range %>% 
+  gather(key = "type", 
+         value = "temperature", 
+         2:3) %>%  
+  ggplot(mapping = aes(x = date, 
+                       y = temperature, 
+                       col = type)) + 
+  geom_line()
+```
+
+
+> Follow the example above to obtain the daily range of departure delays from EWR recorded in the `flights` data.
+
+```{r echo = FALSE}
+daily_flights <- flights %>% 
+  filter(origin == "EWR") %>% 
+  group_by(date = make_date(year, 
+                            month, 
+                            day))
+
+daily_delay_range <-  daily_flights %>% 
+  summarise(DMAX = max(dep_delay, na.rm=T), 
+            DMIN = min(dep_delay, na.rm=T))
+
+daily_delay_range %>% 
+  gather(key = "type", 
+         value = "delay", 
+         2:3) %>%  
+  ggplot(mapping = aes(x = date, 
+                       y = delay, 
+                       col = type)) + 
+  geom_line()
+```
+
+
+### Ranking functions
+The following code finds the coldest hours in each day.
+```{r}
+coldest_hours <- daily_weather %>% 
+  filter(min_rank(temp) == 1) %>% 
+  select(date, hour) 
+
+coldest_hours %>% 
+  filter(row_number() == 1) %>% 
+  ggplot(mapping = aes(x = hour)) + 
+  geom_bar()
+```
+
+> Find the hours that the longest departure delay happens each day.
+
+```{r echo=FALSE}
+slowest_hours <- daily_flights %>% 
+  filter(min_rank(desc(dep_delay)) == 1) %>% 
+  select(date, hour)
+
+slowest_hours %>% 
+  filter(row_number() == 1) %>% 
+  ggplot(mapping = aes(x = hour)) + 
+  geom_bar()
+```
+
+
+### Lead and lag
+
+If we want to measure the drop in temperature, we can calculate the difference between yesterday's maximum temperature and today's minimum temperature.
+```{r}
+daily_temperature_range <- daily_temperature_range %>% 
+  mutate(temp_drop = lag(TMAX) - TMIN )
+```
+
+
+> Calculate the day-to-day differences of the daily maximum temperature and compare it with the daily temperature drop.
+
+```{r echo=FALSE}
+daily_temperature_range %>%  
+  mutate(diff_max = TMAX - lag(TMAX)) %>% 
+  gather(key = "variable", 
+         value = "difference", 
+         4:5) %>% 
+  ggplot(mapping = aes(x = date, 
+                       y = difference, 
+                       col=variable)) + 
+  geom_line()
+```
+
+
+
+## Summary
+
+
+1. Fitting GLM and run model diagnostics are similar to ordinary LM.
+2. Windows functions in R are useful in processing sequential data. 
+ 
+
+
+## Your turn
+
+1. Try fitting a Poisson regression model on the Belgium AIDS case data  used in Section 3.3.2 of the GAMAIR book. Use plots to check the fitted model. Do you need a quadratic term or a cubic term? 
+
+```{r}
+## 3.3.2
+y <- c(12,14,33,50,67,74,123,141,165,204,253,246,240)
+t <- 1:13
+plot(t+1980,y,xlab="Year",ylab="New AIDS cases",ylim=c(0,280))
+```
+
+
+
+
