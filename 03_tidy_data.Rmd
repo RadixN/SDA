@@ -1,0 +1,244 @@
+---
+title: "SIT741 Week 3 Practical"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE)
+```
+
+
+## Learning Goal
+1. You know how to use R to compute density or mass of common probability distributions and draw a 
+random sample from the distribution to verify statistical properties.
+2. You can convert untidy data into tidy data using 1) spreading, 2) gathering, 3) separating, and 4) uniting.
+
+
+## R functions for distributions
+
+R language provides a comprehensive set of tools for generating a random sample from a probability distribution. 
+A set of distributions can be found https://stat.ethz.ch/R-manual/R-devel/library/stats/html/Distributions.html .
+For each distribution `XXX`, R provides a probability distribution function `pXXX`, a density functions `dXXX`, a quantile functions `qXXX`, and a random number generation function `rXXX`.
+For example, the following functions are available for the Poisson distribution.
+```{r eval=FALSE}
+dpois(x=5, lambda=10, log = FALSE)
+ppois(q, lambda, lower.tail = TRUE, log.p = FALSE)
+qpois(p, lambda, lower.tail = TRUE, log.p = FALSE)
+rpois(n, lambda)
+```
+
+Suppose that you have a Poisson distribution $p(k; \lambda) = \exp^{-\lambda}\frac{\lambda^k}{k!}$. 
+The following call generate the density $p(50; 4)$.
+```{r}
+dpois(x = 50, lambda = 4)
+```
+
+
+What result do you get with the call below? Why?
+```{r}
+dpois(x = 1, lambda = 4)
+```
+
+
+To generate 100 random sample points from the above distribution, you can use the following function call.
+```{r}
+set.seed(42)
+x <- rpois(10000000, lambda = 16)
+#x
+```
+
+> What are the sample mean and the sample variance of x?
+######to improve/stabilize output: increase sample size 
+
+
+```{r echo=FALSE}
+mean(x)
+var(x)
+```
+
+> Repeat the experiment 50 times. Compare the generated mean and variance. Are they close?
+
+```{r}
+m = c()
+v= c()
+for (i in 1:500)
+{
+  set.seed(i)
+  x=rpois(100000,lambda=16)
+  m= c(m,mean(x))
+  v=c(v,var(x))
+}
+mean(m-v)
+var(m-v)
+sd(m-v)
+hist(m)
+v
+mean(m)
+```
+
+
+## Tidy data
+
+Last week, we have learned how to recognise tidy data based on the following three criteria:
+
+1. Each variable must have its own column.
+2. Each observation must have its own row.
+3. Each value must have its own cell.
+
+
+Given a dataset, it is helpful to ask the following questions.
+
+- What are the variables?
+- What is an observation?
+
+When you answer "yes" to either of the following questions, most likely your data is untidy.
+
+- Do you have values in the heading?
+- Do you have variable names in a column?
+
+
+In this practical, we will learn how to make your data tidy.
+
+### Gather and spread to tidy data
+
+Table 4 below has values (1999, 2000) in the heading; It is untidy. We can *gather* these values into a column (year).
+
+<img src="https://d33wubrfki0l68.cloudfront.net/3aea19108d39606bbe49981acda07696c0c7fcd8/2de65/images/tidy-9.png" width="150%">
+
+Table 2 below has variable names ("cases", "population") in a column; It is untidy. We can *spread* these variable names into the heading.
+
+<img src="https://d33wubrfki0l68.cloudfront.net/8350f0dda414629b9d6c354f87acf5c5f722be43/bcb84/images/tidy-8.png" width="110%">
+
+
+> Read the documentation for the tidyverse functions *gather* and *spread* to understand how to use these two functions. You may also like to read Chapter 12 of [R4DS](https://r4ds.had.co.nz/tidy-data.html).
+
+
+Following [R4DS], we will tidy up the WHO 2014 TB incidence report.
+```{r}
+library(tidyverse)
+head(who)
+who
+```
+
+> Find out the definition of each variables in the data dictionary provided (https://extranet.who.int/tme/generateCSV.asp?ds=dictionary).
+
+Clearly we have variable names that correspond to combinations of some categorical variables. 
+In other words, we have values in the heading. Hence we can use *gather* first. We also provide *pivot_longer* equivalent for *gather*.
+Check the shapes of the outputs and how they are transformed.
+
+```{r}
+#gather
+who
+
+who1 <- who %>% 
+  gather(key = "case_group", 
+         value = "cases", 
+         starts_with("new"),
+         na.rm = TRUE)
+who1
+
+#pivot_longer
+who_equivalent <- who %>%
+  pivot_longer(names_to = "case_group",
+              values_to = "cases",
+              starts_with("new"))
+
+#note that pivot_longer behaviour is somewhat different in sorting the output.
+
+who_spread_back <- who1 %>% 
+  spread(case_group, cases)
+
+who_spread_back
+#note: the size here differs from the original one because we removed na.rm = TRUE. If we hadn't (comment out to test), the size would be the same.
+
+
+who_wider_back <- who_equivalent %>%
+  pivot_wider(names_from = case_group, values_from = cases)
+
+who_wider_back
+
+```
+
+Here we decide to remove the NAs as a missing value likely represents no data in that group. 
+
+> What should we do if we believe that an NA is equivalent to zero case count?
+
+```{r echo=FALSE}
+who1 <- who %>% 
+  gather(key = "case_group", 
+         value = "cases", 
+         starts_with("new"), 
+         na.rm = FALSE) %>% 
+  replace_na(list(cases = 0))
+who1
+```
+
+
+> Is *who1* tidy?
+
+In the case_group column, each cell is a combination of three (for the "new and relapse" cases) or  four values (for the "new" cases). 
+```{r}
+who2 <- who1 %>% 
+  separate(col = case_group, 
+           into = c("new", "manifestation_gender_age"), 
+           sep = "_",
+           extra = "merge")
+who2
+```
+
+> Read the documentation for the tidyverse function *separate* and understand what the argument "extra" does here.
+
+Since the "new and relapse" cases do not have information on the disease manifestation, we will fill it with NA.
+
+```{r}
+who3 <- who2 %>% 
+  separate(col = manifestation_gender_age,
+           into = c("manifestation", "gender_age"),
+           sep = "_",
+           fill = "left")
+who3
+```
+
+> What happens if we remove the "fill" argument?
+
+Finally, we can separate the gender and the age group.
+
+```{r}
+who4 <-  who3 %>% 
+  separate(col = "gender_age",
+           into = c("gender", "age_group"),
+           sep = 1)  #separate first character from left if -1 its one character from right
+who4
+```
+
+
+> Look at *who4*. Is it tidy now?
+
+Once we have a tidy data set, we can easily apply other tidyverse tools to analyse the data set.
+```{r}
+who4 %>% 
+  filter(country == "Australia",
+         new == "new") %>% 
+  ggplot(aes(x = year, y = cases, color = gender)) + 
+  geom_line() + 
+  facet_grid(age_group~manifestation)
+```
+
+We will come back to ggplot2 later in the unit.
+
+### Your turn
+
+1. Group the above steps into one statement using pipe.
+2. Do all the variables have the correct types? If not, use "mutate" to convert them into the correct variable types. Make sure "age_group" has the variable type for an ordinal variable.
+3. Download the climate statistics for the Melbourne Airport from the Bureau of Meteorology ( http://www.bom.gov.au/clim_data/cdio/tables/text/IDCJCM0035_086282.csv) Is the data tidy? If not, see if you can make it tidy.
+
+### Summary
+
+You can use *gather* and *spread* to obtain tidy data.
+
+The strategies: 
+ 
+* If data from the same measurement source are scattered in multiple columns, "gather" them into the same column 
+* If data from the same observation are scattered in multiple rows, "spread" them into the same row
+
+
