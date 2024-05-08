@@ -1,0 +1,249 @@
+---
+title: "SIT741 Week 9 Practical"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, eval = TRUE)
+```
+
+
+## Learning Goal
+1. You can fit a GAM using R
+2. You can compute rolling aggregates on time-stamped data
+
+## Fitting GAM
+
+We will follow the cherry tree example in Section 4.6 of the book *Generalized Additive Models: An Introduction with R* (GAMAIR).
+
+There are two popular R packages for fitting a generalised additive model: *gam* and *mgcv*. In this unit, we will use the *mgcv* package.
+
+### Specifying a GAM
+
+Specifying a generalised additive model (GAM) is similar to specifying a GLM. The main difference is use the *s()* and *te()* functions for specifying smoothing functions.
+```{r}
+library(mgcv)   ## load the package
+library(gamair) ## load the data package
+data(trees)
+ct1 <- gam(Volume ~ s(Height) + s(Girth),
+           family=Gamma(link=log),
+           data=trees)
+ct1
+```
+
+As you can see, the degree of freedom or the penalty parameter is fitted automatically through minimizing GCV. This resulted in a linear function of *Height* (dof = 1) and a curved function of *Girth* (dof = 2.42).
+
+We can use the plot function to see the fitted smooth functions.
+```{r}
+plot(ct1)
+```
+
+With smooth functions, it is not meaning to plot residuals against covariates directly. Instead, we can impose residuals on top of the above function plots.
+
+```{r}
+plot(ct1, residuals = TRUE)
+```
+
+### Increasing function flexibility
+
+The $s()$ function above uses thin plate regression splines by default. There is an implicit upper bound on the degree of freedom; it is the *k* parameter. According to Simon Wood, the default value is "essentially arbitrary". Therefore, you may need to check if the default *k* is too restrictive.
+
+
+The example below uses a small *k*; it created little difference in this case.
+```{r}
+ct2 <- gam(Volume ~ s(Height) + s(Girth,
+                                  k=2),
+           family=Gamma(link=log),
+           data=trees)
+ct2
+plot(ct2)
+```
+
+### Multi-variate smooth functions
+
+You can specify multi-variate smooth functions. Then you do not need to specify the interaction between two predictors. Here you have two choices: either isotropic smooths with *s()* or scale-independent tensor-product smooths with $te()$.
+Isotropic smooth is required when $x_1$ and $x_2$ have the same measurement unit that needs to be respected. For example, $x_1$ and $x_2$ can be the $x$ and $y$ coordinates of a map.
+
+In this case, *Height* and *Girth* can be smoothed assuming independent scales.
+```{r}
+ct6 <- gam(Volume ~ te(Height,Girth,k=5),
+           family=Gamma(link=log),
+           data=trees)
+ct6
+plot(ct6, too.far=0.15)
+```
+
+Here the *too.far* parameter was used to erase lines from areas with no corresponding data, resulting in broken lines.
+
+### Mixing parametric terms and smooth functions
+
+As an extension of GLM, GAM can naturally handle parametric terms as in a GLM.
+The following example use a parametric term of *Height* and a smooth function of *Girth*.
+
+```{r}
+ct7 <- gam(Volume ~ Height + s(Girth),
+           family=Gamma(link=log),
+           data=trees)
+```
+
+With that said, you need to interpret the results for two fitted terms.
+```{r}
+summary(ct7)
+```
+
+As you can see, the parametric term has the same results in a GLM. But the smooth function has a different set of outputs, and is probably more meaningful to be viewed in a plot.
+```{r}
+plot(ct7)
+```
+
+
+### Reporting AIC
+
+As you may already know, more complex models tend to fit the data better, and hence have greater likelihood values. To avoid overfitting, we should optimise prediction accuracy instead. AIC is used to measure model's expected prediction accuracy on new data. It equals -2 * loglikelihood + 2 * edf; so we prefer a lower AIC. 
+
+**WARNING**: Some software packages define AIC to be what we understand as the negative of AIC. Always check the documentation.
+
+You can obtain AIC from an LM, a GLM, or a GAM. 
+
+```{r}
+AIC(ct7)
+```
+
+## Window functions again: RcppRoll
+Last week, the following types window operations were mentioned:
+
+1. Ordinal functions: `row_number`; `min_rank` and `dense_rank`; `percent_rank` and `cume_dist`; `ntile`; `first`, `nth`, and `last`.
+2. Offset functions: `lead` and `lag`.
+3. Cumulative aggregates: `cumsum`, `cummin`, `cummax`, `cumall`, `cumany`, and `cummean`. (See also the `accumulate` function in package `pyrrr`.)
+4. Rolling aggregates
+
+This week, we will look at the rolling aggregate functions in the package `RcppRoll`.
+
+
+### How to measure temperature change?
+We have seen that the air temperature has daily and yearly cycles. 
+```{r}
+library(tidyverse)
+library(lubridate)
+library(nycflights13)
+weather_lga <- weather %>%
+  mutate(dt =  make_date(year, month, day)) %>% 
+  filter(origin == "LGA")
+weather_lga
+```
+
+```{r}
+
+weather_lga %>%
+  ggplot(aes(x = dt, y = temp, colour = factor(hour))) + 
+  geom_line()
+```
+
+```{r}
+
+weather_lga %>%
+  group_by(month, hour) %>% 
+  summarise(t_avg = mean(temp)) %>% 
+  ggplot(aes(x = hour, y = t_avg, colour = factor(month))) + 
+  geom_line()
+```
+
+
+In [this paper](https://www.ncbi.nlm.nih.gov/pubmed/12060315), a sudden change of temperature is measured by the difference between a day's temperature and the mean temperature of the previous 3 days.
+ 
+```{r}
+library(RcppRoll)
+weather_lga <- weather_lga %>% 
+  filter(hour == 7) %>% 
+  mutate(t_3d_before = roll_meanr(lag(temp), 3)) %>% 
+  mutate(tdiff_3 = temp - t_3d_before) 
+
+weather_lga %>% 
+  ggplot() +
+  geom_line(aes(dt, tdiff_3))
+```
+
+
+
+> Can you modify the code to measure the difference with the *median* temperature of the previous 3 days?
+
+```{r}
+weather_lga
+```
+
+
+```{r echo = FALSE}
+weather_lga <- weather_lga %>% 
+  mutate(tdiff_3_median = temp - roll_medianr(lag(temp), 3))
+
+weather_lga %>% 
+  ggplot() +
+  geom_line(aes(dt, tdiff_3_median))
+```
+
+## Temperature and flight numbers
+Suppose we are interested in the impact of sudden weather change on the number of daily flights. We can add that indicator into the model we developed last week.
+```{r}
+library(mgcv)
+daily <- flights %>% 
+  mutate(date = make_date(year, month, day)) %>% 
+  group_by(date) %>% 
+  summarise(n = n()) %>% 
+  mutate(wkday = factor(wday(date, label = TRUE), ordered = FALSE ),
+         date_n = as.numeric(date))
+
+
+daily <- daily %>% left_join(select(weather_lga, date = dt, tdiff_3, temp))
+
+model_gam3 <- gam(n ~ s(date_n, by = wkday) + wkday, data = daily) 
+model_gam5 <- gam(n ~ s(date_n, by = wkday) + wkday + s(tdiff_3), data = daily) 
+```
+
+> Does the new model fit the data better?
+
+```{r echo=FALSE}
+AIC(model_gam3,
+    model_gam5)
+gam.check(model_gam5)
+```
+
+
+Let's have a look at the relation.
+```{r}
+plot(model_gam5)
+```
+
+What can you say about the effect of temperature drop?
+
+
+
+> Can you modify the model using the difference of median temperature?
+
+```{r echo=FALSE, eval=FALSE}
+daily <- daily %>% left_join(select(weather_lga, date = dt, tdiff_3_median))
+model_gam7 <- gam(n ~ s(date_n, by = wkday) + wkday + s(tdiff_3_median), data = daily) 
+
+plot(model_gam7)
+
+AIC(model_gam3,
+    model_gam5,
+    model_gam7)
+gam.check(model_gam7)
+```
+
+
+
+## Summary
+
+
+1. *mgcv* package can be used to fit GAM
+2. *RcppRoll* package can be used to compute rolling aggregates.
+
+
+## Your turn
+
+1. Try to apply cubic splines in the examples above and compare the fitted smooth functions. Do you see better fit given a comparable degree of freedom?
+
+
+
+
